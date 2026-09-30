@@ -1,3 +1,5 @@
+![TRVVTH logo](assets/logo.webp)
+
 # TRVVTH — the Zero-Trust Anchorage, standalone
 
 The gate any agent can use. Claims in, verdicts out, no trust assumed.
