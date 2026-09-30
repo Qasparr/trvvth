@@ -1,0 +1,175 @@
+# ☉ in 4° 34′ Libra  ☽ in 16° 47′ Aries  dies solis  Anno V:xii e.n.
+# Johnathan 'Qasparr' (Κασπάρρ) Monroe, Keeper of the Secret Treasure
+# All Rights Reserved, Without Prejudice.  CashApp $axoneme
+"""
+Validation tests for trvvth.anchorage -- the Zero-Trust Anchorage,
+standalone (no persona imports; duty registry and clock injected).
+
+Run:  python3 tests/test_gate.py
+"""
+
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from trvvth import (  # noqa: E402
+    ASSERTION,
+    CITATION,
+    FALSEHOOD,
+    NUMBER,
+    QUOTE,
+    TRVVTH,
+    UNRESOLVED,
+    Claim,
+    admit,
+    cardinal_rules,
+    weigh_claim,
+    weigh_rights,
+)
+
+PASS = 0
+
+
+def check(label, fn):
+    global PASS
+    try:
+        fn()
+    except AssertionError as e:
+        print(f"FAIL  {label}: {e}")
+        raise SystemExit(1)
+    PASS += 1
+    print(f"  ok: {label}")
+
+
+def t_quote_verbatim_is_trvvth():
+    c = Claim(text="exact words", kind=QUOTE, proof={"source": "these exact words here"})
+    assert weigh_claim(c).verdict == TRVVTH
+
+
+def t_quote_missing_is_falsehood():
+    c = Claim(text="other words", kind=QUOTE, proof={"source": "these exact words here"})
+    assert weigh_claim(c).verdict == FALSEHOOD
+
+
+def t_quote_no_source_is_unresolved():
+    assert weigh_claim(Claim(text="x", kind=QUOTE)).verdict == UNRESOLVED
+
+
+def t_number_recomputed_is_trvvth():
+    c = Claim(text="93", kind=NUMBER,
+              proof={"recompute": lambda: 93, "expected": 93})
+    a = weigh_claim(c)
+    assert a.verdict == TRVVTH, a.note
+
+
+def t_number_mismatch_is_falsehood():
+    c = Claim(text="93", kind=NUMBER,
+              proof={"recompute": lambda: 94, "expected": 93})
+    assert weigh_claim(c).verdict == FALSEHOOD
+
+
+def t_number_no_recompute_is_unresolved():
+    assert weigh_claim(Claim(text="93", kind=NUMBER)).verdict == UNRESOLVED
+
+
+def t_number_crashing_recompute_is_unresolved():
+    def boom():
+        raise ValueError("nope")
+    c = Claim(text="93", kind=NUMBER, proof={"recompute": boom, "expected": 93})
+    a = weigh_claim(c)
+    assert a.verdict == UNRESOLVED, a.note  # the gate reports, never crashes
+
+
+def t_citation_plausible_is_unresolved():
+    c = Claim(text="319 U.S. 105 (1943)", kind=CITATION)
+    a = weigh_claim(c)
+    assert a.verdict == UNRESOLVED and "red pen" in a.note, a.note
+
+
+def t_citation_malformed_is_falsehood():
+    assert weigh_claim(Claim(text="some case, I think", kind=CITATION)).verdict == FALSEHOOD
+
+
+def t_assertion_is_unresolved():
+    a = weigh_claim(Claim(text="a bare claim", kind=ASSERTION))
+    assert a.verdict == UNRESOLVED, a.note
+
+
+def t_unknown_kind_is_falsehood():
+    assert weigh_claim(Claim(text="x", kind="rumor")).verdict == FALSEHOOD
+
+
+def t_cardinal_rule_lack_of_proof():
+    # The cardinal rule: UNRESOLVED is never upgraded, never convicted.
+    rules = cardinal_rules()
+    assert any("never scored as proof of falsehood" in r for r in rules)
+
+
+def t_balance_holds_when_paired():
+    b = weigh_rights([Claim(text="x", kind=ASSERTION, right="speech", duty="care")])
+    assert b.holds and b.unbalanced == []
+
+
+def t_balance_fails_when_unpaired():
+    b = weigh_rights([Claim(text="x", kind=ASSERTION, right="speech")])
+    assert not b.holds and b.unbalanced == ["speech"]
+
+
+def t_balance_no_resolver_takes_duty_at_face_value():
+    b = weigh_rights([Claim(text="x", kind=ASSERTION, right="r", duty="whatever")])
+    assert b.unresolved_duties == [], "no resolver wired: cannot judge duties"
+
+
+def t_balance_resolver_marks_unresolved():
+    b = weigh_rights([Claim(text="x", kind=ASSERTION, right="r", duty="bogus")],
+                     duty_resolver=lambda d: {"real": "REAL"}.get(d))
+    assert b.unresolved_duties == ["r"], b.unresolved_duties
+
+
+def t_admit_clean_claims_admitted():
+    w = admit([Claim(text="2+2", kind=NUMBER,
+                     proof={"recompute": lambda: 4, "expected": 4})],
+              stamp="test-stamp")
+    assert w.admitted and w.stamp == "test-stamp", w.report()
+
+
+def t_admit_falsehood_refuses():
+    w = admit([Claim(text="nope", kind=QUOTE, proof={"source": "other"})])
+    assert not w.admitted
+
+
+def t_admit_unbalanced_refuses():
+    w = admit([Claim(text="x", kind=ASSERTION, right="r")])
+    assert not w.admitted
+    assert "UNBALANCED" in w.report()
+
+
+def t_admit_unresolved_marked_never_upgraded():
+    w = admit([Claim(text="maybe", kind=ASSERTION)])
+    assert w.admitted, "UNRESOLVED alone does not refuse"
+    assert w.assessments[0].verdict == UNRESOLVED
+
+
+def t_admit_default_stamp_is_utc():
+    w = admit([])
+    assert "T" in w.stamp, w.stamp  # ISO-8601 UTC default
+
+
+def t_admit_injected_clock():
+    w = admit([], stamp="dies solis", sun_in_anchorage=True)
+    assert "Sun in the Anchorage" in w.report(), w.report()
+
+
+def t_no_persona_imports():
+    import trvvth.anchorage as a
+    import trvvth.alethic as x
+    assert "persona_v" not in getattr(a, "__file__", "")
+    assert "persona_v" not in getattr(x, "__file__", "")
+
+
+if __name__ == "__main__":
+    for name, fn in sorted([(k, v) for k, v in globals().items()
+                            if k.startswith("t_")]):
+        check(name, fn)
+    print(f"\n{PASS} gate tests passed.")

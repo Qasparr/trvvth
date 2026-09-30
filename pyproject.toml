@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "trvvth"
+version = "0.1.0"
+description = "The Zero-Trust Anchorage and the Alethic Axis, standalone -- the gate any agent can use."
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [{name = "Johnathan 'Κασπάρρ' Monroe"}]
+license = {text = "TBD -- author to choose (MIT recommended)"}
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["trvvth*"]
