@@ -9,7 +9,11 @@ description = "The Zero-Trust Anchorage and the Alethic Axis, standalone -- the 
 readme = "README.md"
 requires-python = ">=3.10"
 authors = [{name = "Johnathan 'Κασπάρρ' Monroe"}]
-license = {text = "TBD -- author to choose (MIT recommended)"}
+license = {text = "AGPL-3.0-only"}
+
+[project.urls]
+Homepage = "https://github.com/Qasparr/trvvth"
+Repository = "https://github.com/Qasparr/trvvth"
 
 [tool.setuptools.packages.find]
 where = ["."]

@@ -10,7 +10,7 @@ if [ $# -lt 1 ]; then
   exit 1
 fi
 
-PY="${PY:-python3}"
+PY="${PY:-.venv/bin/python}"
 VER=$($PY -c "import trvvth; print(trvvth.__version__)")
 echo "== TRVVTH v$VER =="
 
