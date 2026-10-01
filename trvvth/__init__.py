@@ -15,7 +15,7 @@ The gate any agent can use: claims in, verdicts out, no trust assumed.
     print(working.report())
 """
 
-__version__ = "0.2.2"
+__version__ = "0.2.3"
 
 from .alethic import (  # noqa: F401
     ABSENT,

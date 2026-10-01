@@ -93,6 +93,21 @@ def t_citation_malformed_is_falsehood():
     assert weigh_claim(Claim(text="some case, I think", kind=CITATION)).verdict == FALSEHOOD
 
 
+def t_citation_full_form_case_cite_is_unresolved():
+    # The QIRA audit (2026-10-01) caught the gate rejecting a proper
+    # full-form cite while accepting the bare reporter half. Format
+    # plausibility earns the red pen -- UNRESOLVED -- never TRVVTH.
+    a = weigh_claim(
+        Claim(text="SEC v. W.J. Howey Co., 328 U.S. 293 (1946)", kind=CITATION))
+    assert a.verdict == UNRESOLVED and "red pen" in a.note, a.note
+    assert a.verdict != TRVVTH
+
+
+def t_citation_bare_reporter_still_unresolved():
+    a = weigh_claim(Claim(text="328 U.S. 293 (1946)", kind=CITATION))
+    assert a.verdict == UNRESOLVED and "red pen" in a.note, a.note
+
+
 def t_assertion_is_unresolved():
     a = weigh_claim(Claim(text="a bare claim", kind=ASSERTION))
     assert a.verdict == UNRESOLVED, a.note

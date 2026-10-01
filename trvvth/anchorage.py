@@ -87,6 +87,11 @@ _CITE_PATTERNS = (
     re.compile(r"^.+Co\. Rep\. .+ \(\d{4}\)$"),         # 5 Co. Rep. 91a (1604)
     re.compile(r"^\d+ U\.S\.C\. §+ .+$"),               # 18 U.S.C. § 1621
     re.compile(r"^Mich\. Const\. .+$"),                 # Mich. Const. Art. VII, § 4
+    # Full-form case cite: the case name earns nothing by itself, but a
+    # proper name-plus-reporter cite is format-plausible and goes to the
+    # red pen like any other -- UNRESOLVED, never TRVVTH from the shape.
+    re.compile(r"^.+\bv\.\s+.+,\s*\d+\s+U\.S\.\s+\d+\s+\(\d{4}\)$"),
+    # SEC v. W.J. Howey Co., 328 U.S. 293 (1946)
 )
 
 
