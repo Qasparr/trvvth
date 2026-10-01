@@ -56,6 +56,47 @@ working = admit(
 `stated`, `weak`, `absent`), `ClaimAssessment`, and `AlethicBalance`
 — the working's account of how its word stands.
 
+## The API
+
+The gate as a cross-platform HTTP service (pure Python + FastAPI —
+runs anywhere Python runs):
+
+```bash
+pip install trvvth
+trvvth-serve --port 8124
+```
+
+Then: the operator's guide at `http://localhost:8124/guide`,
+interactive docs at `/docs`, health at `/diagnostics/health`.
+
+```bash
+curl -X POST localhost:8124/admit -H 'Content-Type: application/json' -d '{
+  "claims": [
+    {"text": "hold fast that which is good", "kind": "quote",
+     "proof": {"source": "prove all things; hold fast that which is good"}},
+    {"text": "17+76", "kind": "number",
+     "proof": {"expression": "17+76", "expected": 93}}
+  ]}'
+```
+
+Number-claims cross the wire with an arithmetic `expression`
+(safe parser — no `eval`, no names); Python callers can keep passing
+`recompute` callables directly.
+
+Every surface is HTTP-reachable and charted:
+
+| surface | endpoints |
+|---|---|
+| the gate | `POST /admit`, `POST /weigh`, `GET /kinds`, `/verdicts`, `/cardinal-rules` |
+| diagnostics | `GET /diagnostics/health`, `POST /diagnostics/self-test` (known-answer suite), `GET /diagnostics/wiring`, `POST /diagnostics/benchmark` + run history |
+| reports | `GET /reports/ledger`, `/reports/summary`, SVG charts at `/reports/charts/verdicts`, `/timeline`, `/kinds` |
+| analytics | `GET /analytics/overview` (traffic, latency, errors + gate totals), SVG charts at `/analytics/charts/traffic`, `/latency`, `/benchmarks` |
+
+Admissions, request analytics, and benchmark runs persist in one
+sqlite file (`TRVVTH_LEDGER`, default `./trvvth-ledger.db` — stdlib,
+nothing platform-specific). Wire a strict duty registry with
+`TRVVTH_DUTY_RESOLVER=module:attribute`.
+
 ## Provenance
 
 Extracted from PERSONA V (Johnathan 'Κασπάρρ' Monroe, Keeper of the

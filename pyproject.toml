@@ -4,12 +4,22 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "trvvth"
-version = "0.1.0"
+version = "0.2.0"
 description = "The Zero-Trust Anchorage and the Alethic Axis, standalone -- the gate any agent can use."
 readme = "README.md"
 requires-python = ">=3.10"
 authors = [{name = "Johnathan 'Κασπάρρ' Monroe"}]
 license = "AGPL-3.0-only"
+dependencies = [
+    "fastapi",
+    "uvicorn",
+]
+
+[project.scripts]
+trvvth-serve = "trvvth.serve:main"
+
+[project.optional-dependencies]
+test = ["httpx"]
 
 [project.urls]
 Homepage = "https://github.com/Qasparr/trvvth"
