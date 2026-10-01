@@ -2,29 +2,79 @@
 # All Rights Reserved, Without Prejudice.  CashApp $axoneme
 """api -- the TRVVTH gate as a cross-platform HTTP API.
 
-Pure Python + FastAPI: it runs anywhere Python runs. Every surface
-is reachable over HTTP and documented three ways -- OpenAPI at
-``/docs``, ReDoc at ``/redoc``, and the hand-written operator's guide
-at ``/guide``.
+    "Prove all things; hold fast that which is good."
+    -- 1 Thessalonians 5:21
 
-Surfaces:
-* the gate itself: POST /admit, POST /weigh, plus reference data
-  (kinds, verdicts, cardinal rules);
-* diagnostics: health, a known-answer self-test, wiring report, and
-  the gate's own benchmark suite with run history;
-* reports: the admission ledger, summaries, and SVG charts;
-* analytics: the app watching itself -- request counts, latency,
-  error rates, and their charts.
+    "Invoke me under my stars! Love is the law, love under will."
+    -- Liber AL, I:57
 
-Number-claims cross the wire with ``proof: {"expression": "17+76",
-"expected": 93}``; the expression is evaluated by trvvth.safeval
-(no eval, no names, arithmetic only). Python callers can keep using
-``recompute`` callables directly against trvvth.anchorage.
+Hypothesis
+----------
+The zero-trust gate should not require the Python interpreter at the
+caller's elbow. Claims arrive over HTTP from any platform; verdicts
+return over HTTP; nothing about the trust model changes in transit.
+The gate's wiring -- whose duties count, whose clock stamps -- is
+still injected, never assumed, but now the injection happens through
+environment and process boundaries rather than function arguments.
 
-Persistence: one sqlite file (env TRVVTH_LEDGER, default
-./trvvth-ledger.db) holding admissions, request analytics, and
-benchmark runs. Stdlib only -- nothing to install, nothing
-platform-specific.
+Method
+------
+FastAPI + uvicorn: pure Python, no compiled extensions, identical on
+Linux, macOS, and Windows -- the cross-platform requirement is met
+by refusing to depend on anything platform-specific. The module is
+organized as four surfaces over one gate:
+
+* *The gate itself* (``/admit``, ``/weigh``, ``/kinds``,
+  ``/verdicts``, ``/cardinal-rules``): the Anchorage, reachable.
+  Number-claims cross the wire as arithmetic expressions evaluated
+  by ``trvvth.safeval`` -- the ``recompute`` callable cannot survive
+  JSON, so the expression is the wire form and the safe evaluator is
+  its guardian.
+* *Diagnostics* (``/diagnostics/*``): health, a known-answer
+  self-test run through the *live* gate (not a mock of it), a wiring
+  report naming what the process was injected with, and the
+  benchmark suite with run history.
+* *Reports* (``/reports/*``): the admission ledger, its summary,
+  and SVG charts drawn from it.
+* *Analytics* (``/analytics/*``): the app watching itself --
+  request counts, latency, error rates, and their charts.
+
+Persistence is one sqlite file (``trvvth.ledger``): admissions,
+request analytics, and benchmark runs are three tables in one book.
+The middleware records every request's method, path, status, and
+duration -- but analytics must never break the gate, so the
+recording is wrapped in a try/except that swallows everything: a
+failed witness is better than a fallen gate.
+
+The Thelemic verse stands over the wiring section deliberately:
+"Love is the law, love under will." The injected duty resolver is
+law -- the strict canonical check -- and it operates *under will*,
+the operator's will, expressed through ``TRVVTH_DUTY_RESOLVER``. Law
+without will is tyranny; will without law is weather. The gate
+holds both, in that order.
+
+Observation
+-----------
+``POST /admit`` returns the full ``AdmitOut`` -- per-claim verdicts,
+the Oz x Duty balance (including which rights stand unbalanced and
+which named duties failed canonical resolution), the stamp, and the
+``ledger_id`` receipt. The OpenAPI schema at ``/docs``, ReDoc at
+``/redoc``, and the hand-written operator's guide at ``/guide``
+document the same surface three ways: machine-readable,
+human-browsable, and narrative.
+
+Result
+------
+The gate any agent can use, now usable by any agent that speaks
+HTTP -- which is to say, any of them. The trust model did not move:
+no claim enters on authority, including the API's own.
+
+Law
+---
+The API admits workings, not exhibits; every citation herein is
+educational. Cf. Fed. R. Evid. 901(a) (authentication as condition
+precedent), cited at length in trvvth.anchorage -- the principle
+travels with the gate across the wire unchanged.
 """
 
 from __future__ import annotations
@@ -55,8 +105,23 @@ from .safeval import evaluate as safe_evaluate
 
 
 # ---------------------------------------------------------------- models
+# The wire shapes. Pydantic validates the JSON before the gate ever
+# sees it: malformed claims are refused at the door with a 422, which
+# is the API's own small act of zero-trust -- the gate weighs claims,
+# but it should never have to weigh garbage.
 
 class ClaimIn(BaseModel):
+    """One claim as it arrives over the wire.
+
+    ``proof`` is the interesting field: for quotes it carries
+    ``{"source": "..."}``; for numbers it carries ``{"expression":
+    "17+76", "expected": 93}`` -- the expression is evaluated by
+    ``trvvth.safeval`` at admission time (see ``_claim_from``). The
+    ``recompute`` callable of the Python API has no wire form, by
+    necessity: functions do not survive JSON. ``right``/``duty`` are
+    the Oz x Duty pairing; a right without its duty unbalances the
+    working exactly as in the Python gate.
+    """
     text: str = Field(..., description="The claim as stated.")
     kind: str = Field("assertion",
                       description="quote | number | citation | assertion")
@@ -70,6 +135,7 @@ class ClaimIn(BaseModel):
 
 
 class AdmitIn(BaseModel):
+    """A working offered to the gate: one or more claims, plus stamp options."""
     claims: list[ClaimIn] = Field(..., min_length=1)
     stamp: Optional[str] = Field(None, description="Override the UTC stamp.")
     sun_in_anchorage: bool = False
@@ -77,6 +143,7 @@ class AdmitIn(BaseModel):
 
 
 class AssessmentOut(BaseModel):
+    """One weighed claim, as the API reports it."""
     kind: str
     text: str
     verdict: str
@@ -84,6 +151,15 @@ class AssessmentOut(BaseModel):
 
 
 class AdmitOut(BaseModel):
+    """The weighed working: verdicts, balance, stamp, and receipt.
+
+    ``ledger_id`` is the row in the admissions ledger -- the
+    working's receipt, citable back to the exact record.
+    ``unbalanced_rights`` names the rights that arrived without
+    duties; ``unresolved_duties`` names the rights whose named duty
+    failed the canonical resolver (empty when no resolver is
+    wired, or when all resolve).
+    """
     admitted: bool
     stamp: str
     anchorage: str
@@ -95,8 +171,25 @@ class AdmitOut(BaseModel):
 
 
 # ------------------------------------------------------- wiring & lifespan
+# "Love is the law, love under will." -- Liber AL, I:57.
+# The duty resolver is law (the strict canonical check); the
+# environment variable is will (the operator's choice). The gate
+# enforces the pairing either way -- with a resolver wired, named
+# duties must resolve; without one, a named duty is taken at face
+# value and only the pairing itself is enforced. Both are honest;
+# the wiring report says which is in force.
 
 def _load_duty_resolver():
+    """Load the strict duty registry from ``TRVVTH_DUTY_RESOLVER``.
+
+    The variable names ``module:attribute`` -- a module importable
+    from the server process and the attribute holding the resolver
+    callable. Absent variable: open pairing (no resolver). Malformed
+    value: the error is captured, not raised at import -- a server
+    that refuses to start over a misconfigured optional is a gate
+    that locked its own operator out. The wiring endpoint reports
+    the error honestly.
+    """
     dotted = os.environ.get("TRVVTH_DUTY_RESOLVER")
     if not dotted:
         return None
@@ -119,6 +212,13 @@ CONN = None
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    """Open the ledger for the process's lifetime; close it on shutdown.
+
+    The ledger path comes from ``TRVVTH_LEDGER`` (default
+    ``./trvvth-ledger.db``) -- moving the file moves the gate's
+    memory. The path is stashed on ``app.state`` so the wiring
+    report can name it.
+    """
     global CONN
     path = os.environ.get("TRVVTH_LEDGER", "trvvth-ledger.db")
     CONN = db.connect(path)
@@ -139,6 +239,24 @@ app = FastAPI(
 
 @app.middleware("http")
 async def _analytics(request: Request, call_next):
+    """Time every request and witness it to the analytics ledger.
+
+    The duration is measured around the whole downstream handling
+    and recorded with method, path, and status -- this is the app
+    watching itself, the witness of its own labor. Two deliberate
+    choices:
+
+    1. ``/docs`` is excluded: the operator's own browsing of the
+       schema should not pollute the traffic it came to read.
+    2. The recording is wrapped in try/except and swallows
+       everything: analytics must never break the gate. A failed
+       witness is a gap in the record; a crashed admission is a
+       failure of the work. The hierarchy is absolute.
+
+    The measured milliseconds are also returned as the
+    ``X-TRVVTH-ms`` header -- the server stating its own cost
+    honestly, on every response.
+    """
     start = time.perf_counter()
     response = await call_next(request)
     duration_ms = (time.perf_counter() - start) * 1000
@@ -155,6 +273,17 @@ async def _analytics(request: Request, call_next):
 
 
 def _claim_from(data: ClaimIn) -> Claim:
+    """Translate a wire claim into the gate's ``Claim``.
+
+    The translation is where the wire form meets the Python form:
+    a number-claim carrying ``proof.expression`` gets a
+    ``recompute`` closure over ``trvvth.safeval.evaluate`` -- the
+    closure binds the expression *by value* (default argument), so
+    each claim carries its own expression even when translated in a
+    loop. The ``expected`` value passes through untouched for the
+    gate to compare against. All other kinds pass their proof
+    through verbatim: the wire adds nothing and takes nothing.
+    """
     proof = dict(data.proof)
     if data.kind == "number" and "expression" in proof:
         expression = proof.pop("expression")
@@ -166,6 +295,13 @@ def _claim_from(data: ClaimIn) -> Claim:
 
 
 def _admit_out(working, ledger_id: int) -> AdmitOut:
+    """Render an ``AnchoredWorking`` as the API's ``AdmitOut``.
+
+    The anchorage sentence names which lights stood in the
+    Anchorage (Sun/Moon flags) or states plainly that the moment
+    fell outside it -- the stamp authenticates *when*, never
+    *whether*, and the sentence says so either way.
+    """
     anchor = []
     if working.sun_in_anchorage:
         anchor.append("Sun")
@@ -187,12 +323,23 @@ def _admit_out(working, ledger_id: int) -> AdmitOut:
 
 
 # ------------------------------------------------------------------ gate
+# "Prove all things; hold fast that which is good." -- 1 Thess. 5:21.
+# These endpoints are the verse as infrastructure: every claim
+# offered here is proven or marked, and only what is good -- no
+# FALSEHOOD, balance holding -- is held fast (admitted).
 
 @app.post("/admit", response_model=AdmitOut, tags=["gate"],
           summary="Weigh a working through the gate")
 def post_admit(body: AdmitIn):
     """Offer claims; receive per-claim verdicts, the Oz x Duty balance,
-    the stamp, and the admission. The working is written to the ledger."""
+    the stamp, and the admission. The working is written to the ledger.
+
+    The verdict tallies are counted here (not in the ledger module)
+    because they are the gate's reading of its own work -- the
+    ledger stores the reading faithfully, but the reading itself
+    belongs to the gate. The full payload (claims as submitted,
+    stamp, admission) is stored verbatim as the witness statement.
+    """
     claims = [_claim_from(c) for c in body.claims]
     working = admit(claims, duty_resolver=DUTY_RESOLVER, stamp=body.stamp,
                     sun_in_anchorage=body.sun_in_anchorage,
@@ -215,7 +362,10 @@ def post_admit(body: AdmitIn):
 @app.post("/weigh", tags=["gate"], summary="Weigh one claim, no ledger")
 def post_weigh(body: ClaimIn):
     """Weigh a single claim without recording a working. Useful for
-    probing the gate or scripting checks."""
+    probing the gate or scripting checks -- the question "what would
+    the gate say?" asked without committing the asking to the books.
+    Some questions deserve weighing without witness; this is that
+    endpoint."""
     assessment = weigh_claim(_claim_from(body))
     return {"kind": assessment.claim.kind, "text": assessment.claim.text,
             "verdict": assessment.verdict, "note": assessment.note}
@@ -223,6 +373,9 @@ def post_weigh(body: ClaimIn):
 
 @app.get("/kinds", tags=["gate"], summary="Claim kinds the gate weighs")
 def get_kinds():
+    """The four kinds, and the wire note that number-claims travel as
+    expressions while Python callers may pass ``recompute``
+    callables directly -- two doors into the same weighing room."""
     return {"kinds": list(KINDS),
             "note": "number-claims cross the wire with an arithmetic"
                     " expression; Python callers may pass recompute"
@@ -231,6 +384,10 @@ def get_kinds():
 
 @app.get("/verdicts", tags=["gate"], summary="The three verdicts")
 def get_verdicts():
+    """The alethic axis as the API declares it: what each verdict
+    means, and the cardinal rule beneath them all -- lack of proof is
+    never scored as proof of falsehood. The axis cuts both ways: it
+    judges claims, and it judges the judging."""
     return {"verdicts": {
         TRVVTH: "the claim's grounds verify against the record",
         UNRESOLVED: "neither proven nor disproven -- marked for the human"
@@ -243,13 +400,22 @@ def get_verdicts():
 
 @app.get("/cardinal-rules", tags=["gate"], summary="The gate's cardinal rules")
 def get_rules():
+    """The six rules, straight from the gate's own mouth
+    (``trvvth.anchorage.cardinal_rules``) -- the API does not
+    paraphrase doctrine, it serves it."""
     return {"rules": cardinal_rules()}
 
 
 # ------------------------------------------------------------ diagnostics
+# The gate examining itself: liveness, known answers, wiring, and
+# the cost of its own labor. "The axis cuts both ways: it judges
+# claims, and it judges the judging." -- trvvth.alethic.
 
 @app.get("/diagnostics/health", tags=["diagnostics"], summary="Is the gate up?")
 def health():
+    """Liveness with identity: package name, version, and the
+    declaration that the Anchorage is operational. A health check
+    that cannot name what it guards is a pulse with no body."""
     return {"status": "ok", "package": "trvvth", "version": __version__,
             "gate": "anchorage operational", "ledger": True}
 
@@ -257,15 +423,20 @@ def health():
 @app.post("/diagnostics/self-test", tags=["diagnostics"],
           summary="Known-answer suite against the live gate")
 def self_test():
-    """Six checks with known verdicts, run through the real admit():
+    """Seven checks with known verdicts, run through the real admit():
 
-    1. verbatim quote -> TRVVTH
-    2. quote absent from source -> FALSEHOOD
-    3. number, expression recomputes -> TRVVTH
-    4. number, expression mismatches -> FALSEHOOD
-    5. malformed citation -> FALSEHOOD
-    6. bare assertion -> UNRESOLVED
-    7. right without duty -> working not admitted
+    1. verbatim quote -> TRVVTH (the gate recognizes its own proof)
+    2. quote absent from source -> FALSEHOOD (exact quotes or none)
+    3. number, expression recomputes -> TRVVTH (the wire form works)
+    4. number, expression mismatches -> FALSEHOOD (arithmetic is honest)
+    5. malformed citation -> FALSEHOOD (format is never truth)
+    6. bare assertion -> UNRESOLVED (honest "not shown")
+    7. right without duty -> working not admitted (Oz x Duty is physics)
+
+    The suite tests the *live* gate -- the same ``admit`` the API
+    serves -- not a mock of it. A self-test that cannot fail the
+    thing it tests is a ritual, not a diagnostic. ``healthy`` is
+    True only when all seven pass.
     """
     checks = []
     w = admit([Claim(text="hold fast that which is good", kind="quote",
@@ -306,6 +477,11 @@ def self_test():
 @app.get("/diagnostics/wiring", tags=["diagnostics"],
          summary="What the gate is wired to")
 def wiring():
+    """Name the injections: which duty resolver (if any -- and any
+    load error, honestly reported), that the stamp defaults to UTC
+    unless the caller supplies one, and where the ledger file lives.
+    The gate's wiring is injected, never assumed -- and never
+    secret: this endpoint is the assumption, stated aloud."""
     return {
         "duty_resolver": ("open pairing (none wired)"
                           if DUTY_RESOLVER is None and not DUTY_RESOLVER_ERROR
@@ -325,7 +501,15 @@ def wiring():
 def run_benchmark(iterations: int = Query(1000, ge=10, le=100000)):
     """Time the gate's primitives (weigh per kind) and full workings
     (admit over 10/50/100 claims). The run is stored; compare against
-    history via /diagnostics/benchmarks."""
+    history via /diagnostics/benchmarks.
+
+    The iteration count is bounded (10..100000): benchmarking is the
+    counting of the cost, not the spending of it -- an unbounded
+    benchmark endpoint would be a denial-of-service machine wearing
+    a diagnostic's clothes. When a previous run exists, the response
+    includes the per-benchmark delta: the gate weighed against
+    itself, the axis judging the judging.
+    """
     results = bench.run(iterations=iterations)
     run_id = db.record_benchmark(CONN, iterations=iterations,
                                  results=results)
@@ -340,12 +524,16 @@ def run_benchmark(iterations: int = Query(1000, ge=10, le=100000)):
 @app.get("/diagnostics/benchmarks", tags=["diagnostics"],
          summary="Benchmark run history")
 def benchmark_list(limit: int = Query(20, ge=1, le=100)):
+    """Past benchmark runs, newest first -- the gate's speed as a
+    record, not a rumor."""
     return {"runs": db.benchmark_history(CONN, limit=limit)}
 
 
 @app.get("/diagnostics/benchmarks/{run_id}", tags=["diagnostics"],
          summary="One benchmark run")
 def benchmark_one(run_id: int):
+    """One run by id, in full. A missing id is a 404 -- the honest
+    "not shown" rather than an invented empty run."""
     run = db.benchmark_run(CONN, run_id)
     if run is None:
         raise HTTPException(404, "no such benchmark run")
@@ -353,23 +541,34 @@ def benchmark_one(run_id: int):
 
 
 # ---------------------------------------------------------------- reports
+# "At the mouth of two witnesses... shall the matter be
+# established." -- Deut. 19:15. The reports are the second witness:
+# the gate weighed the working, and the ledger testifies that the
+# weighing happened.
 
 @app.get("/reports/ledger", tags=["reports"], summary="Admission ledger")
 def reports_ledger(limit: int = Query(50, ge=1, le=500),
                    offset: int = Query(0, ge=0),
                    admitted: Optional[bool] = None):
+    """Page the admissions book, newest first, with an optional
+    admitted/not-admitted filter. The page names the workings; the
+    full witness statement behind each is one more query away."""
     return {"workings": db.ledger_page(CONN, limit=limit, offset=offset,
                                        admitted=admitted)}
 
 
 @app.get("/reports/summary", tags=["reports"], summary="Ledger summary")
 def reports_summary():
+    """The whole book tallied in one reading: workings, admission
+    rate, claims, verdicts, balances held."""
     return db.admission_summary(CONN)
 
 
 @app.get("/reports/charts/verdicts", tags=["reports"],
          summary="SVG: verdict distribution")
 def chart_verdicts():
+    """The alethic account as a picture: the three verdicts in their
+    doctrinal colors, served as dependency-free SVG."""
     return Response(content=svg.verdict_chart(db.verdict_counts(CONN)),
                     media_type="image/svg+xml")
 
@@ -377,6 +576,9 @@ def chart_verdicts():
 @app.get("/reports/charts/timeline", tags=["reports"],
          summary="SVG: workings per day")
 def chart_timeline(days: int = Query(30, ge=1, le=365)):
+    """Workings per day over the trailing window -- the gate's labor
+    as a rhythm, so the operator can see when the gate worked and
+    when it rested."""
     pts = [(d["day"], d["workings"]) for d in db.daily_workings(CONN, days)]
     return Response(
         content=svg.timeline("Workings per Day", pts,
@@ -387,6 +589,8 @@ def chart_timeline(days: int = Query(30, ge=1, le=365)):
 @app.get("/reports/charts/kinds", tags=["reports"],
          summary="SVG: claims by kind")
 def chart_kinds():
+    """What the gate has been asked to weigh, by kind -- the shape
+    of the questions, not just the shape of the answers."""
     items = sorted(db.claims_by_kind(CONN).items())
     return Response(
         content=svg.bar_chart("Claims by Kind", [(k, float(v)) for k, v in items],
@@ -395,10 +599,20 @@ def chart_kinds():
 
 
 # --------------------------------------------------------------- analytics
+# "To every thing there is a season, and a time to every purpose
+# under the heaven." -- Ecclesiastes 3:1. Analytics is the
+# bookkeeping of times: when the requests came, how long each
+# labored, and which ended in failure. The app watches itself the
+# way the gate watches claims -- by witness, not by assumption.
 
 @app.get("/analytics/overview", tags=["analytics"],
          summary="The app watching itself")
 def analytics_overview():
+    """Two self-portraits side by side: the app's (requests,
+    latency, error rate, hottest paths) and the gate's (workings,
+    admission rate, verdicts). The server grading its own labor,
+    honestly -- including the failures, which are counted, not
+    hidden."""
     stats = db.request_stats(CONN)
     gate = db.admission_summary(CONN)
     return {"app": stats, "gate": gate}
@@ -407,6 +621,9 @@ def analytics_overview():
 @app.get("/analytics/charts/traffic", tags=["analytics"],
          summary="SVG: requests per endpoint")
 def chart_traffic():
+    """Which doors the world knocks on: request counts for the
+    twelve hottest endpoints. The gate's popularity contest, drawn
+    without flattery."""
     items = [(r["path"], float(r["hits"]))
              for r in db.request_stats(CONN)["by_path"][:12]]
     return Response(
@@ -418,6 +635,10 @@ def chart_traffic():
 @app.get("/analytics/charts/latency", tags=["analytics"],
          summary="SVG: mean latency over time")
 def chart_latency():
+    """Mean latency in five-minute buckets -- the server's pulse as
+    a timeline. Timestamps are rendered in the server's local time;
+    the underlying buckets are UTC, because the stamp says when and
+    the chart shows it."""
     pts = [(time.strftime("%m-%d %H:%M", time.localtime(p["ts"])), p["avg_ms"])
            for p in db.latency_series(CONN)]
     return Response(
@@ -429,6 +650,10 @@ def chart_latency():
 @app.get("/analytics/charts/benchmarks", tags=["analytics"],
          summary="SVG: gate throughput across runs")
 def chart_benchmarks():
+    """Throughput per benchmark across the last ten runs, grouped --
+    the gate's speed as a history, so a slowdown is visible before
+    it is felt. With no runs yet, the chart says so plainly rather
+    than drawing an empty frame and calling it data."""
     history = list(reversed(db.benchmark_history(CONN, limit=10)))
     series: dict[str, list[tuple[str, float]]] = {}
     for run in history:
@@ -445,6 +670,10 @@ def chart_benchmarks():
 
 
 # ------------------------------------------------------------------- docs
+# "The Method of Science, the Aim of Religion." The guide is the
+# method written down: the narrative form of the machine-readable
+# schema, so the operator learns the gate the way the schema cannot
+# teach -- by story and example.
 
 _GUIDE = """<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -523,11 +752,17 @@ trvvth-serve --host 0.0.0.0 --port 8124</code></pre>
 @app.get("/guide", response_class=HTMLResponse, tags=["docs"],
          summary="Operator's guide")
 def guide():
+    """The narrative documentation: the method written down. The
+    machine-readable schema teaches the shapes; the guide teaches
+    the gate -- by story and example, the way the schema cannot."""
     return _GUIDE.replace("{ver}", __version__)
 
 
 @app.get("/", response_class=HTMLResponse, tags=["docs"], include_in_schema=False)
 def index():
+    """The front door: version, and the three ways in -- the guide,
+    the interactive schema, and the health check. Kept out of the
+    OpenAPI schema deliberately: it is a signpost, not an endpoint."""
     return f"""<!doctype html><html><head><meta charset="utf-8">
 <title>TRVVTH -- the Zero-Trust Anchorage</title>
 <style>body{{font-family:Georgia,serif;max-width:40em;margin:3em auto;
@@ -544,6 +779,10 @@ a{{color:#3b3b6d}}</style></head><body>
 
 @app.exception_handler(404)
 async def _not_found(request: Request, exc):
+    """The 404 with doctrine: an unknown route is not an error to be
+    feared but a question the gate cannot answer -- and the gate's
+    honest answer to what it cannot answer is UNRESOLVED, never
+    FALSEHOOD. Even the error handler keeps the cardinal rule."""
     return JSONResponse(status_code=404,
                         content={"verdict": "UNRESOLVED",
                                  "note": f"no such route: {request.url.path}"})

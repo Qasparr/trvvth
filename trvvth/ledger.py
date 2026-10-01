@@ -2,17 +2,79 @@
 # All Rights Reserved, Without Prejudice.  CashApp $axoneme
 """ledger -- the gate's own books, kept in sqlite (stdlib, cross-platform).
 
-Three ledgers, one file:
-* admissions -- every working the gate weighed: verdict tallies, whether
-  it was admitted, whether Oz x Duty held, the full payload as JSON.
-* requests -- every HTTP request the API served: method, path, status,
-  duration in milliseconds. The app watches itself.
-* benchmark_runs -- every benchmark run against the gate: parameters
-  and per-benchmark results as JSON.
+    "One witness shall not rise up against a man for any iniquity...
+     at the mouth of two witnesses, or at the mouth of three
+     witnesses, shall the matter be established."
+    -- Deuteronomy 19:15
 
-All writers take an explicit sqlite3 connection; the API owns one
-connection per process (sqlite is fine with that under uvicorn's
-default single-process server).
+Hypothesis
+----------
+A gate that weighs claims should keep its own record the way the Law
+keeps one: every matter established by witnesses, written down, and
+retrievable. Three ledgers in one file serve the three surfaces that
+need memory:
+
+* *admissions* -- every working the gate weighed: the verdict
+  tallies, whether it was admitted, whether Oz x Duty held, and the
+  full payload as JSON (the mouth of the witnesses, verbatim).
+* *requests* -- every HTTP request the API served: method, path,
+  status, duration in milliseconds. The app watching itself -- the
+  witness that the server was awake and how long it labored.
+* *benchmark_runs* -- every benchmark run against the gate: its
+  parameters and per-benchmark results as JSON, so today's gate can
+  be weighed against yesterday's.
+
+Method
+------
+sqlite, from the standard library: a single file, no server, no
+driver to install, identical behavior on every platform Python
+reaches. The schema is created idempotently (``CREATE TABLE IF NOT
+EXISTS``), so opening an existing ledger never disturbs it -- the
+book opens where it left off.
+
+The subtle analysis -- worth stating plainly because it bites every
+first implementation -- is threading. Uvicorn runs synchronous
+endpoints in a threadpool, while the connection is opened once in
+the application's lifespan; a sqlite connection created in one
+thread refuses, by default, to be used in another. Two measures
+answer it, and both are needed:
+
+1. ``check_same_thread=False`` at connect time, which lifts the
+   thread-affinity guard; and
+2. a single module-level ``threading.Lock`` (``_LOCK``) held by
+   every writer, which restores the safety the guard provided --
+   sqlite's own locking serializes the file, but the Python-level
+   lock keeps two threads from interleaving statements on the one
+   shared connection object.
+
+Reads take no lock: sqlite permits concurrent readers, and a torn
+read here would only ever produce a chart missing its newest bar,
+never a wrong admission.
+
+Observation
+-----------
+``record_admission`` returns the row id, which the API hands back as
+``ledger_id`` -- every admission carries its own receipt. The
+aggregation queries (``admission_summary``, ``verdict_counts``,
+``daily_workings``, ``request_stats``) are plain SQL over indexed
+timestamp columns; the per-kind tally (``claims_by_kind``) walks the
+stored payloads, trading a scan for schema simplicity -- the ledger
+stores what the gate saw, not a pre-digested shadow of it.
+
+Result
+------
+The gate remembers. Reports, analytics, and benchmark history are
+not separate systems bolted on; they are readings of the one book.
+Move the file (``TRVVTH_LEDGER``) and the memory moves with it.
+
+Law
+---
+A ledger is kept the way evidence is kept: complete, contemporaneous,
+and retrievable -- cf. the authentication principle of Fed. R. Evid.
+901(a), already cited in trvvth.anchorage. The ledger does not make a
+verdict true; it records that the verdict was rendered, by what
+gate, and when. Cited for education only; this module creates no
+legal effect.
 """
 
 from __future__ import annotations
@@ -22,11 +84,18 @@ import sqlite3
 import threading
 import time
 
-# One lock guarding the single connection; uvicorn runs sync
-# endpoints in a threadpool, so the connection must also allow
-# cross-thread use.
+# One lock guarding the single connection. Uvicorn runs sync endpoints
+# in a threadpool while the lifespan opens the connection once in the
+# main thread; without this lock two threads could interleave writes
+# on the shared connection object. With it, every write is atomic
+# from the application's point of view -- the ledger never records
+# half a working. (See the module docstring for the full analysis.)
 _LOCK = threading.Lock()
 
+# The whole schema, applied idempotently on every connect. Three
+# tables, two timestamp indexes. ``payload`` and ``results`` are JSON
+# text: the ledger stores the working as the gate saw it, verbatim,
+# rather than a normalized shadow that could drift from the truth.
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS admissions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -59,6 +128,15 @@ CREATE INDEX IF NOT EXISTS idx_requests_ts ON requests(ts);
 
 
 def connect(path: str) -> sqlite3.Connection:
+    """Open (or create) the ledger file and ensure the schema.
+
+    ``check_same_thread=False`` is deliberate and documented: the
+    connection is opened in the lifespan thread and used from
+    uvicorn's worker threads. Thread safety is restored by ``_LOCK``
+    around every writer -- the flag alone would be a hazard, the lock
+    alone would deadlock against sqlite's own guard; together they
+    are the correct construction. See the module docstring.
+    """
     conn = sqlite3.connect(path, check_same_thread=False)
     conn.executescript(SCHEMA)
     return conn
@@ -67,6 +145,15 @@ def connect(path: str) -> sqlite3.Connection:
 def record_admission(conn: sqlite3.Connection, *, admitted: bool,
                      n_claims: int, verdicts: dict[str, int],
                      balance_holds: bool, payload: dict) -> int:
+    """Write one weighed working to the admissions ledger.
+
+    The verdict tallies are stored as columns (they are what the
+    reports aggregate), while the full payload -- the claims as
+    submitted, the stamp, the admission -- is stored as JSON text,
+    verbatim. The returned row id is the working's receipt; the API
+    returns it as ``ledger_id`` so any admission can be cited back
+    to its exact row.
+    """
     with _LOCK:
         cur = conn.execute(
             "INSERT INTO admissions (ts, admitted, n_claims, n_trvvth,"
@@ -83,6 +170,12 @@ def record_admission(conn: sqlite3.Connection, *, admitted: bool,
 
 def record_request(conn: sqlite3.Connection, *, method: str, path: str,
                    status: int, duration_ms: float) -> None:
+    """Write one served HTTP request to the analytics ledger.
+
+    Called by the API's middleware after every response. The
+    ``/docs`` route is excluded by the caller -- the operator's own
+    browsing should not pollute the traffic it came to read.
+    """
     with _LOCK:
         conn.execute(
             "INSERT INTO requests (ts, method, path, status, duration_ms)"
@@ -94,6 +187,7 @@ def record_request(conn: sqlite3.Connection, *, method: str, path: str,
 
 def record_benchmark(conn: sqlite3.Connection, *, iterations: int,
                      results: dict) -> int:
+    """Write one benchmark run. Returns its id for later comparison."""
     with _LOCK:
         cur = conn.execute(
             "INSERT INTO benchmark_runs (ts, iterations, results)"
@@ -105,6 +199,14 @@ def record_benchmark(conn: sqlite3.Connection, *, iterations: int,
 
 
 def admission_summary(conn: sqlite3.Connection) -> dict:
+    """Tally the whole admissions book in one pass.
+
+    Returns workings weighed, workings admitted, the admission rate,
+    total claims, the verdict tallies, and how many workings held
+    their Oz x Duty balance. Division by zero is guarded: an empty
+    ledger reports a rate of 0.0, not an error -- no workings, no
+    rate, honestly stated.
+    """
     row = conn.execute(
         "SELECT COUNT(*), SUM(admitted), SUM(n_claims), SUM(n_trvvth),"
         " SUM(n_unresolved), SUM(n_falsehood), SUM(balance_holds)"
@@ -126,6 +228,14 @@ def admission_summary(conn: sqlite3.Connection) -> dict:
 
 def ledger_page(conn: sqlite3.Connection, limit: int = 50,
                 offset: int = 0, admitted: bool | None = None) -> list[dict]:
+    """Page the admissions ledger, newest first.
+
+    ``admitted`` is a tri-state filter: True/False narrows to that
+    outcome, None returns both. Payloads are deliberately excluded
+    from the page -- the ledger's index names the workings; the full
+    witness statement is one more query away, not freighted onto
+    every listing.
+    """
     q = ("SELECT id, ts, admitted, n_claims, n_trvvth, n_unresolved,"
          " n_falsehood, balance_holds FROM admissions")
     args: list = []
@@ -141,6 +251,7 @@ def ledger_page(conn: sqlite3.Connection, limit: int = 50,
 
 
 def verdict_counts(conn: sqlite3.Connection) -> dict[str, int]:
+    """The alethic account, summed across every working on the books."""
     row = conn.execute(
         "SELECT SUM(n_trvvth), SUM(n_unresolved), SUM(n_falsehood)"
         " FROM admissions").fetchone()
@@ -149,6 +260,14 @@ def verdict_counts(conn: sqlite3.Connection) -> dict[str, int]:
 
 
 def claims_by_kind(conn: sqlite3.Connection) -> dict[str, int]:
+    """Count claims by kind, by walking the stored payloads.
+
+    This is a scan rather than an indexed aggregate, by design: the
+    ledger stores what the gate saw (the payload JSON), not a
+    pre-digested shadow of it, so new analyses can always be derived
+    from the primary record. Corrupt payloads are skipped, never
+    fatal -- one bad row must not sink the report.
+    """
     counts: dict[str, int] = {}
     for (payload,) in conn.execute("SELECT payload FROM admissions").fetchall():
         try:
@@ -161,6 +280,12 @@ def claims_by_kind(conn: sqlite3.Connection) -> dict[str, int]:
 
 
 def daily_workings(conn: sqlite3.Connection, days: int = 30) -> list[dict]:
+    """Workings and admissions per calendar day, oldest first.
+
+    Dates are computed in SQL (``date(ts, 'unixepoch')``) so the
+    bucketing is the database's, not the reporter's -- one
+    definition of "day," shared by every chart drawn from it.
+    """
     rows = conn.execute(
         "SELECT date(ts, 'unixepoch') AS day, COUNT(*), SUM(admitted)"
         " FROM admissions WHERE ts > strftime('%s','now', ?)"
@@ -171,6 +296,14 @@ def daily_workings(conn: sqlite3.Connection, days: int = 30) -> list[dict]:
 
 
 def request_stats(conn: sqlite3.Connection) -> dict:
+    """The app's self-knowledge: traffic, latency, and error rate.
+
+    Returns the total request count, the fraction that ended in
+    server errors (status >= 500 -- the app grading its own
+    failures), mean and maximum latency in milliseconds, and the
+    twenty hottest paths with their hit counts and mean latencies.
+    An empty analytics book reports zeros, not errors.
+    """
     total = conn.execute("SELECT COUNT(*) FROM requests").fetchone()[0] or 0
     by_path = conn.execute(
         "SELECT path, COUNT(*), AVG(duration_ms) FROM requests"
@@ -190,6 +323,13 @@ def request_stats(conn: sqlite3.Connection) -> dict:
 
 
 def latency_series(conn: sqlite3.Connection, points: int = 60) -> list[dict]:
+    """Mean latency in 5-minute buckets, oldest first, for charting.
+
+    Bucketing by ``CAST(ts / 300 AS INTEGER)`` keeps the series
+    bounded no matter how long the server has run: sixty points
+    describe the last five hours, and older history compresses
+    gracefully instead of drowning the chart.
+    """
     rows = conn.execute(
         "SELECT ts, AVG(duration_ms) FROM requests"
         " GROUP BY CAST(ts / 300 AS INTEGER)"
@@ -199,6 +339,7 @@ def latency_series(conn: sqlite3.Connection, points: int = 60) -> list[dict]:
 
 def benchmark_history(conn: sqlite3.Connection,
                       limit: int = 20) -> list[dict]:
+    """Past benchmark runs, newest first, results decoded from JSON."""
     rows = conn.execute(
         "SELECT id, ts, iterations, results FROM benchmark_runs"
         " ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
@@ -207,6 +348,7 @@ def benchmark_history(conn: sqlite3.Connection,
 
 
 def benchmark_run(conn: sqlite3.Connection, run_id: int) -> dict | None:
+    """One benchmark run by id, or None if no such run exists."""
     r = conn.execute(
         "SELECT id, ts, iterations, results FROM benchmark_runs"
         " WHERE id = ?", (run_id,)).fetchone()
