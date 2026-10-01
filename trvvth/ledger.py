@@ -104,6 +104,7 @@ CREATE TABLE IF NOT EXISTS admissions (
     n_claims INTEGER NOT NULL,
     n_trvvth INTEGER NOT NULL,
     n_unresolved INTEGER NOT NULL,
+    n_rhetoric INTEGER NOT NULL,
     n_falsehood INTEGER NOT NULL,
     balance_holds INTEGER NOT NULL,
     payload TEXT NOT NULL
@@ -136,10 +137,52 @@ def connect(path: str) -> sqlite3.Connection:
     around every writer -- the flag alone would be a hazard, the lock
     alone would deadlock against sqlite's own guard; together they
     are the correct construction. See the module docstring.
+
+    Schema evolution is handled here, not in the callers: ledgers
+    written before the RHETORIC verdict existed have no n_rhetoric
+    column, and the gate must read old books without rewriting them.
+    After the base schema is ensured, ``_migrate`` adds any missing
+    columns idempotently -- PRAGMA first, ALTER only when absent --
+    so a ledger from v0.2.1 opens cleanly under v0.2.2 and its old
+    rows simply tally zero rhetoric, which is exactly what they
+    contain.
     """
     conn = sqlite3.connect(path, check_same_thread=False)
     conn.executescript(SCHEMA)
+    _migrate(conn)
     return conn
+
+
+def _migrate(conn: sqlite3.Connection) -> None:
+    """Idempotent schema migration for verdicts added after v0.2.1.
+
+    Hypothesis: a ledger written by an older gate must remain
+    readable -- the books are a witness statement, and a witness
+    statement is not rewritten when the court learns a new word.
+
+    Method: inspect the live table with PRAGMA table_info; ALTER
+    TABLE ... ADD COLUMN only for columns the table lacks. New
+    columns are NOT NULL DEFAULT 0 so old rows tally honestly.
+
+    Observation: on a v0.2.1 ledger, n_rhetoric is absent and gets
+    added; on a v0.2.2 ledger it is present and nothing happens.
+
+    Result: connect() is safe to call against any ledger this
+    project has ever written, and every verdict-listing query can
+    name every verdict without fear of a missing column.
+    """
+    cols = {row[1] for row in
+            conn.execute("PRAGMA table_info(admissions)").fetchall()}
+    # Column additions, in doctrine order: (name, definition).
+    # Each is independent; a future verdict adds one tuple here.
+    additions = (
+        ("n_rhetoric", "INTEGER NOT NULL DEFAULT 0"),
+    )
+    for name, definition in additions:
+        if name not in cols:
+            conn.execute(f"ALTER TABLE admissions ADD COLUMN {name} "
+                         f"{definition}")
+    conn.commit()
 
 
 def record_admission(conn: sqlite3.Connection, *, admitted: bool,
@@ -157,11 +200,12 @@ def record_admission(conn: sqlite3.Connection, *, admitted: bool,
     with _LOCK:
         cur = conn.execute(
             "INSERT INTO admissions (ts, admitted, n_claims, n_trvvth,"
-            " n_unresolved, n_falsehood, balance_holds, payload)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            " n_unresolved, n_rhetoric, n_falsehood, balance_holds, payload)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (time.time(), int(admitted), n_claims,
              verdicts.get("TRVVTH", 0), verdicts.get("UNRESOLVED", 0),
-             verdicts.get("FALSEHOOD", 0), int(balance_holds),
+             verdicts.get("RHETORIC", 0), verdicts.get("FALSEHOOD", 0),
+             int(balance_holds),
              json.dumps(payload)),
         )
         conn.commit()
@@ -209,7 +253,8 @@ def admission_summary(conn: sqlite3.Connection) -> dict:
     """
     row = conn.execute(
         "SELECT COUNT(*), SUM(admitted), SUM(n_claims), SUM(n_trvvth),"
-        " SUM(n_unresolved), SUM(n_falsehood), SUM(balance_holds)"
+        " SUM(n_unresolved), SUM(n_rhetoric), SUM(n_falsehood),"
+        " SUM(balance_holds)"
         " FROM admissions").fetchone()
     workings = row[0] or 0
     return {
@@ -220,9 +265,10 @@ def admission_summary(conn: sqlite3.Connection) -> dict:
         "verdicts": {
             "TRVVTH": row[3] or 0,
             "UNRESOLVED": row[4] or 0,
-            "FALSEHOOD": row[5] or 0,
+            "RHETORIC": row[5] or 0,
+            "FALSEHOOD": row[6] or 0,
         },
-        "balance_holds": row[6] or 0,
+        "balance_holds": row[7] or 0,
     }
 
 
@@ -237,7 +283,7 @@ def ledger_page(conn: sqlite3.Connection, limit: int = 50,
     every listing.
     """
     q = ("SELECT id, ts, admitted, n_claims, n_trvvth, n_unresolved,"
-         " n_falsehood, balance_holds FROM admissions")
+         " n_rhetoric, n_falsehood, balance_holds FROM admissions")
     args: list = []
     if admitted is not None:
         q += " WHERE admitted = ?"
@@ -246,17 +292,18 @@ def ledger_page(conn: sqlite3.Connection, limit: int = 50,
     args += [limit, offset]
     return [dict(zip(
         ("id", "ts", "admitted", "n_claims", "n_trvvth",
-         "n_unresolved", "n_falsehood", "balance_holds"), r))
+         "n_unresolved", "n_rhetoric", "n_falsehood", "balance_holds"), r))
         for r in conn.execute(q, args).fetchall()]
 
 
 def verdict_counts(conn: sqlite3.Connection) -> dict[str, int]:
     """The alethic account, summed across every working on the books."""
     row = conn.execute(
-        "SELECT SUM(n_trvvth), SUM(n_unresolved), SUM(n_falsehood)"
+        "SELECT SUM(n_trvvth), SUM(n_unresolved), SUM(n_rhetoric),"
+        " SUM(n_falsehood)"
         " FROM admissions").fetchone()
     return {"TRVVTH": row[0] or 0, "UNRESOLVED": row[1] or 0,
-            "FALSEHOOD": row[2] or 0}
+            "RHETORIC": row[2] or 0, "FALSEHOOD": row[3] or 0}
 
 
 def claims_by_kind(conn: sqlite3.Connection) -> dict[str, int]:

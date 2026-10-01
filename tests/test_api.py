@@ -65,7 +65,7 @@ with TestClient(app) as client:
     r = client.post("/diagnostics/self-test")
     body = r.json()
     check("self-test healthy", body["healthy"] is True)
-    check("self-test 7 checks", body["total"] == 7)
+    check("self-test 8 checks", body["total"] == 8)
 
     r = client.get("/diagnostics/wiring")
     check("wiring reports ledger", "ledger" in r.json())
@@ -94,10 +94,23 @@ with TestClient(app) as client:
     r = client.post("/weigh", json={"text": "x", "kind": "assertion"})
     check("weigh single", r.json()["verdict"] == "UNRESOLVED")
 
+    # RHETORIC over the wire: pure evaluation files as noise, and
+    # the filing is not a conviction -- the working is admitted.
+    r = client.post("/weigh", json={"text": "you are an idiot",
+                                    "kind": "assertion"})
+    check("weigh rhetoric", r.json()["verdict"] == "RHETORIC")
+    r = client.post("/admit", json={"claims": [
+        {"text": "he is nothing", "kind": "assertion"}]})
+    body = r.json()
+    check("admit rhetoric verdict",
+          body["assessments"][0]["verdict"] == "RHETORIC")
+    check("admit rhetoric not refused", body["admitted"] is True)
+
     r = client.get("/kinds")
     check("kinds", "quote" in r.json()["kinds"])
     r = client.get("/verdicts")
     check("verdicts", "TRVVTH" in r.json()["verdicts"])
+    check("verdicts has RHETORIC", "RHETORIC" in r.json()["verdicts"])
     r = client.get("/cardinal-rules")
     check("rules", len(r.json()["rules"]) == 6)
 

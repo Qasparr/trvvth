@@ -65,11 +65,14 @@ import html
 # The alethic palette: the verdicts as colors, so the eye learns the
 # axis before the mind reads the numbers. Gold is TRVVTH -- what is
 # proven shines; indigo is UNRESOLVED -- the held-open question, the
-# night sky before the star is named; iron red is FALSEHOOD -- the
-# color of the struck-through, the refused.
+# night sky before the star is named; ash is RHETORIC -- filed noise,
+# the color of paper put away in a drawer, neither bright nor
+# condemned; iron red is FALSEHOOD -- the color of the
+# struck-through, the refused.
 VERDICT_COLORS = {
     "TRVVTH": "#c9a227",      # gold
     "UNRESOLVED": "#3b3b6d",  # indigo
+    "RHETORIC": "#8a8a93",    # ash
     "FALSEHOOD": "#a33327",   # iron red
 }
 
@@ -269,15 +272,18 @@ def multi_series(title: str, series: dict[str, list[tuple[str, float]]],
 
 
 def verdict_chart(counts: dict[str, int]) -> str:
-    """The canonical reading of the ledger: the three verdicts.
+    """The canonical reading of the ledger: the four verdicts.
 
     The order is doctrinal, not alphabetical -- TRVVTH, UNRESOLVED,
-    FALSEHOOD, the axis as the gate declares it -- and each bar wears
-    its verdict's color from the alethic palette. This is the chart
-    the API serves at /reports/charts/verdicts: the state of every
-    word the gate has ever weighed, in one glance.
+    RHETORIC, FALSEHOOD, the axis as the gate declares it: proven,
+    not-shown, not-a-claim, disproven -- and each bar wears its
+    verdict's color from the alethic palette. This is the chart the
+    API serves at /reports/charts/verdicts: the state of every word
+    the gate has ever weighed, in one glance. Missing keys count as
+    zero, so older tallies without RHETORIC still render.
     """
-    items = [(v, counts.get(v, 0)) for v in ("TRVVTH", "UNRESOLVED", "FALSEHOOD")]
+    items = [(v, counts.get(v, 0))
+             for v in ("TRVVTH", "UNRESOLVED", "RHETORIC", "FALSEHOOD")]
     return bar_chart("Verdicts on the Alethic Axis", items,
                      subtitle="all workings weighed by this gate",
                      colors=VERDICT_COLORS)

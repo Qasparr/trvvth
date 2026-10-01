@@ -15,11 +15,12 @@ The gate any agent can use: claims in, verdicts out, no trust assumed.
     print(working.report())
 """
 
-__version__ = "0.2.1"
+__version__ = "0.2.2"
 
 from .alethic import (  # noqa: F401
     ABSENT,
     FALSEHOOD,
+    RHETORIC,
     STATED,
     TRVVTH,
     UNRESOLVED,
@@ -40,6 +41,7 @@ from .anchorage import (  # noqa: F401
     Claim,
     admit,
     cardinal_rules,
+    detect_rhetoric,
     weigh_claim,
     weigh_rights,
 )

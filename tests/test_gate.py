@@ -19,11 +19,13 @@ from trvvth import (  # noqa: E402
     FALSEHOOD,
     NUMBER,
     QUOTE,
+    RHETORIC,
     TRVVTH,
     UNRESOLVED,
     Claim,
     admit,
     cardinal_rules,
+    detect_rhetoric,
     weigh_claim,
     weigh_rights,
 )
@@ -166,6 +168,101 @@ def t_no_persona_imports():
     import trvvth.alethic as x
     assert "persona_v" not in getattr(a, "__file__", "")
     assert "persona_v" not in getattr(x, "__file__", "")
+
+
+# ------------------------------------------------------- RHETORIC (v0.2.2)
+# The fourth verdict: pure evaluation with no checkable content is
+# filed as noise, never judged. These tests pin both directions --
+# rhetoric fires only on the uncheckable, and UNRESOLVED keeps
+# everything that might be a claim.
+
+def t_rhetoric_insult_is_rhetoric():
+    a = weigh_claim(Claim(text="You are an idiot", kind=ASSERTION))
+    assert a.verdict == RHETORIC, a.note
+    assert "no checkable content" in a.note
+
+
+def t_rhetoric_tonights_claim_is_rhetoric():
+    # The claim from the night of 2026-10-01 that motivated the
+    # verdict: filed as noise, not convicted of falsehood.
+    a = weigh_claim(Claim(
+        text="Johnathan Monroe is nothing; his work amounts to nothing.",
+        kind=ASSERTION))
+    assert a.verdict == RHETORIC, a.note
+
+
+def t_rhetoric_puffery_is_rhetoric():
+    assert weigh_claim(
+        Claim(text="This is the best", kind=ASSERTION)).verdict == RHETORIC
+    assert weigh_claim(
+        Claim(text="She was pathetic", kind=ASSERTION)).verdict == RHETORIC
+
+
+def t_rhetoric_does_not_refuse_admission():
+    # Filing is not conviction: RHETORIC is not FALSEHOOD, so the
+    # working is still admitted. The gate puts the paper in a
+    # drawer; it does not bar the door.
+    w = admit([Claim(text="he is nothing", kind=ASSERTION)])
+    assert w.admitted, "RHETORIC alone must not refuse"
+    assert w.assessments[0].verdict == RHETORIC
+
+
+def t_rhetoric_digit_veto_keeps_unresolved():
+    # Any checkable thread vetoes: a number is something a checker
+    # could pursue, so the claim might be a claim.
+    a = weigh_claim(Claim(text="The answer is 42, trust me", kind=ASSERTION))
+    assert a.verdict == UNRESOLVED, a.note
+
+
+def t_rhetoric_mixed_claim_stays_unresolved():
+    a = weigh_claim(Claim(text="He is terrible and he stole $50",
+                          kind=ASSERTION))
+    assert a.verdict == UNRESOLVED, a.note
+
+
+def t_rhetoric_denial_stays_unresolved():
+    # "is not stupid" is a denial, not an evaluation -- it belongs
+    # to whoever would defend the subject.
+    a = weigh_claim(Claim(text="He is not stupid", kind=ASSERTION))
+    assert a.verdict == UNRESOLVED, a.note
+
+
+def t_rhetoric_quoted_evaluation_stays_unresolved():
+    # Quoted evaluation is quotable against its source: the claim is
+    # "she said it", which a checker could pursue.
+    a = weigh_claim(Claim(text='"He is nothing," she said', kind=ASSERTION))
+    assert a.verdict == UNRESOLVED, a.note
+
+
+def t_rhetoric_year_veto_keeps_unresolved():
+    a = weigh_claim(Claim(text="In 2020 he was the worst", kind=ASSERTION))
+    assert a.verdict == UNRESOLVED, a.note
+
+
+def t_rhetoric_link_veto_keeps_unresolved():
+    a = weigh_claim(Claim(
+        text="The service is awful: https://example.com/report",
+        kind=ASSERTION))
+    assert a.verdict == UNRESOLVED, a.note
+
+
+def t_rhetoric_trailing_noun_is_not_predicate():
+    # "is the best evidence we have" -- "evidence" follows "best",
+    # and evidence is the kind of noun a checker could pursue. The
+    # clause-final requirement keeps this UNRESOLVED.
+    a = weigh_claim(Claim(text="this is the best evidence we have",
+                          kind=ASSERTION))
+    assert a.verdict == UNRESOLVED, a.note
+
+
+def t_detect_rhetoric_names_its_reason():
+    is_rhet, note = detect_rhetoric("She was pathetic")
+    assert is_rhet and "was pathetic" in note, note
+    is_rhet, note = detect_rhetoric("a bare claim")
+    assert not is_rhet, note
+    # When in doubt the detector stays silent: the False branch
+    # always says why, so the silence is auditable.
+    assert note, "the negative verdict must still narrate itself"
 
 
 if __name__ == "__main__":

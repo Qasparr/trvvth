@@ -20,6 +20,10 @@ as a whole receives a balance -- the state of its word:
 * TRVVTH -- the claim's grounds verify against the record.
 * UNRESOLVED -- the claim is neither proven nor disproven. Weak
   grounds, authority-cited grounds, missing grounds: all land here.
+* RHETORIC -- the claim offers no checkable content at all: pure
+  evaluation, insult, or puffery. Filed as noise, never judged.
+  RHETORIC is not a lesser FALSEHOOD and not a failed TRVVTH; it
+  is the gate declining to weigh what was never a weighing-matter.
 * FALSEHOOD -- the claim's grounds are fabricated, or the claim was
   retracted on the record.
 
@@ -54,9 +58,20 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-# The three verdicts of the axis.
+# The four verdicts of the axis.
+#
+# TRVVTH, UNRESOLVED, FALSEHOOD are the original three: proven,
+# not-shown, disproven. RHETORIC is the fourth, added when the gate
+# learned the difference between "checkable but unchecked" and
+# "not even a claim": pure evaluation, insult, or puffery carries
+# no checkable content, so there is nothing to prove and nothing to
+# disprove. The gate files it as noise -- it does not judge it.
+# A verdict of RHETORIC says nothing about the speaker's character
+# and nothing about the statement's truth; it says the statement
+# never entered the jurisdiction of checking.
 TRVVTH = "TRVVTH"
 UNRESOLVED = "UNRESOLVED"
+RHETORIC = "RHETORIC"
 FALSEHOOD = "FALSEHOOD"
 
 # Grounds strength, weakest to strongest.
@@ -78,7 +93,7 @@ class ClaimAssessment:
     detail: str
     grounds: str
     strength: str  # absent | weak | stated | verified
-    verdict: str  # TRVVTH | UNRESOLVED | FALSEHOOD
+    verdict: str  # TRVVTH | UNRESOLVED | RHETORIC | FALSEHOOD
     reasons: tuple
 
 
@@ -90,7 +105,12 @@ class AlethicBalance:
 
     @property
     def counts(self) -> dict[str, int]:
-        tally = {TRVVTH: 0, UNRESOLVED: 0, FALSEHOOD: 0}
+        # Every known verdict gets a counter up front -- including
+        # RHETORIC -- so a verdict the gate can render never raises
+        # KeyError here. The tally must be able to count whatever
+        # the axis can say; a counter that crashes on a legal
+        # verdict would be the books refusing the audit.
+        tally = {TRVVTH: 0, UNRESOLVED: 0, RHETORIC: 0, FALSEHOOD: 0}
         for a in self.assessments:
             tally[a.verdict] += 1
         return tally
@@ -100,17 +120,31 @@ class AlethicBalance:
         return len(self.assessments)
 
     def standing(self) -> str:
-        """A plain sentence on the state of the working's word."""
+        """A plain sentence on the state of the working's word.
+
+        RHETORIC assessments are reported as filed noise -- counted,
+        never judged -- so the sentence distinguishes "awaiting
+        verification" (UNRESOLVED, a debt the working still owes the
+        record) from "filed as noise" (RHETORIC, no debt incurred,
+        nothing owed). FALSEHOOD still compromises the word outright.
+        """
         c = self.counts
         if self.total == 0:
             return "No claims on the record; the axis has nothing to weigh."
         if c[FALSEHOOD]:
             return (f"{c[FALSEHOOD]} claim(s) judged FALSEHOOD -- the "
                     f"working's word is compromised; remedy required.")
+        rhetoric = (f", {c[RHETORIC]} filed as RHETORIC (noise, not judged)"
+                    if c[RHETORIC] else "")
         if c[UNRESOLVED]:
             return (f"{c[TRVVTH]} TRVVTH, {c[UNRESOLVED]} UNRESOLVED, no "
                     f"falsehood -- the word stands, "
-                    f"{c[UNRESOLVED]} claim(s) await verification.")
+                    f"{c[UNRESOLVED]} claim(s) await verification"
+                    f"{rhetoric}.")
+        if c[RHETORIC]:
+            return (f"{c[TRVVTH]} TRVVTH, no falsehood, "
+                    f"{c[RHETORIC]} claim(s) filed as RHETORIC -- noise, "
+                    f"not judged; the word stands.")
         return (f"All {c[TRVVTH]} claims TRVVTH -- the working's word "
                 f"is good.")
 

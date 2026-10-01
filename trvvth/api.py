@@ -90,7 +90,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, Response
 from pydantic import BaseModel, Field
 
 from . import __version__
-from .alethic import FALSEHOOD, TRVVTH, UNRESOLVED
+from .alethic import FALSEHOOD, RHETORIC, TRVVTH, UNRESOLVED
 from .anchorage import (
     KINDS,
     Claim,
@@ -344,7 +344,7 @@ def post_admit(body: AdmitIn):
     working = admit(claims, duty_resolver=DUTY_RESOLVER, stamp=body.stamp,
                     sun_in_anchorage=body.sun_in_anchorage,
                     moon_in_anchorage=body.moon_in_anchorage)
-    verdicts = {TRVVTH: 0, UNRESOLVED: 0, FALSEHOOD: 0}
+    verdicts = {TRVVTH: 0, UNRESOLVED: 0, RHETORIC: 0, FALSEHOOD: 0}
     for a in working.assessments:
         verdicts[a.verdict] = verdicts.get(a.verdict, 0) + 1
     payload = {
@@ -382,16 +382,27 @@ def get_kinds():
                     " callables directly."}
 
 
-@app.get("/verdicts", tags=["gate"], summary="The three verdicts")
+@app.get("/verdicts", tags=["gate"], summary="The four verdicts")
 def get_verdicts():
     """The alethic axis as the API declares it: what each verdict
     means, and the cardinal rule beneath them all -- lack of proof is
     never scored as proof of falsehood. The axis cuts both ways: it
-    judges claims, and it judges the judging."""
+    judges claims, and it judges the judging.
+
+    RHETORIC is the fourth verdict, and the one most easily
+    misunderstood, so its meaning is stated plainly here: it files
+    noise. An assertion offering no checkable content at all -- pure
+    evaluation, insult, puffery -- is not "disproven" and not
+    "unproven"; it never entered the jurisdiction of checking. The
+    gate does not judge the speaker's character and does not rule on
+    the statement's truth. It files the paper and moves on."""
     return {"verdicts": {
         TRVVTH: "the claim's grounds verify against the record",
         UNRESOLVED: "neither proven nor disproven -- marked for the human"
                     " red pen, never upgraded",
+        RHETORIC: "no checkable content offered -- pure evaluation,"
+                  " insult, or puffery; filed as noise, never judged,"
+                  " never a conviction",
         FALSEHOOD: "the claim's grounds are fabricated, or the kind is"
                    " unknown"},
         "cardinal_rule": "Lack of proof is never scored as proof of"
@@ -431,12 +442,13 @@ def self_test():
     4. number, expression mismatches -> FALSEHOOD (arithmetic is honest)
     5. malformed citation -> FALSEHOOD (format is never truth)
     6. bare assertion -> UNRESOLVED (honest "not shown")
-    7. right without duty -> working not admitted (Oz x Duty is physics)
+    7. pure rhetoric -> RHETORIC (noise filed, never judged)
+    8. right without duty -> working not admitted (Oz x Duty is physics)
 
     The suite tests the *live* gate -- the same ``admit`` the API
     serves -- not a mock of it. A self-test that cannot fail the
     thing it tests is a ritual, not a diagnostic. ``healthy`` is
-    True only when all seven pass.
+    True only when all eight pass.
     """
     checks = []
     w = admit([Claim(text="hold fast that which is good", kind="quote",
@@ -464,6 +476,10 @@ def self_test():
     w = admit([Claim(text="an unproven thing", kind="assertion")])
     checks.append(("bare assertion is UNRESOLVED",
                    w.assessments[0].verdict == UNRESOLVED))
+    w = admit([Claim(text="he is nothing", kind="assertion")])
+    checks.append(("pure rhetoric is RHETORIC, not FALSEHOOD",
+                   w.assessments[0].verdict == RHETORIC
+                   and w.admitted is True))
     w = admit([Claim(text="a right", kind="assertion", right="a right")])
     checks.append(("right without duty is not admitted",
                    w.admitted is False
@@ -707,14 +723,16 @@ iff the arithmetic <code>expression</code> recomputes to
 <code>expected</code> (operators <code>+ - * / // % **</code> and
 parentheses only -- evaluated by a safe parser, never
 <code>eval</code>). Citations are never TRVVTH from format alone.
-Assertions without proof are UNRESOLVED. A right without its duty
+Assertions without proof are UNRESOLVED. Assertions offering no
+checkable content at all -- pure evaluation, insult, puffery -- are
+filed as RHETORIC: noise, never judged, never a conviction. A right without its duty
 unbalances the working and it is not admitted.</p>
 <p><code>POST /weigh</code> weighs one claim without touching the
 ledger. <code>GET /kinds</code>, <code>/verdicts</code>,
 <code>/cardinal-rules</code> serve reference data.</p>
 <h2>Diagnostics</h2>
 <ul><li><code>GET /diagnostics/health</code> -- liveness.</li>
-<li><code>POST /diagnostics/self-test</code> -- seven known-answer
+<li><code>POST /diagnostics/self-test</code> -- eight known-answer
 checks run through the live gate.</li>
 <li><code>GET /diagnostics/wiring</code> -- duty resolver, stamp
 source, ledger path.</li>
